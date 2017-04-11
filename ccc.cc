@@ -420,7 +420,8 @@ typedef std::pair<uint64_t, uint64_t> (*test_func_t)(char* data, size_t no_chain
 
 int main(int argc, char** argv)
 {
-  for (int x=1; x<=4; x*=2)
+  for (size_t active_size=cache_size; active_size<=cache_size*3; active_size+=cache_size)
+
     for (int chain_len=32; chain_len<=1024; chain_len*=2)
   {
     constexpr int proc_sizes[5]=
@@ -451,6 +452,9 @@ int main(int argc, char** argv)
       "separated"
     };
 
+    std::pair<char*,size_t> p;
+    p = generate(active_size, chain_len);
+
     for (int mode=0; mode<=1; mode++)
       for (int f=0; f<5; f++)
 	{
@@ -458,8 +462,6 @@ int main(int argc, char** argv)
 	    {
 	      for(int load=1; load<=4; load++)
 		{
-		  std::pair<char*,size_t> p;
-		  p = generate(cache_size * x, chain_len);
 		  /*
 		  printf("A cache_size_multiplier=%d chain_depth=%d no_chains = %ld\n", x,y,p.second);
 		  printf("mode=%s processing_size = %d cpu=%d load=%d\n", 
@@ -472,17 +474,19 @@ int main(int argc, char** argv)
 		  for(int test=0; test<=2; test++)
 		    {
 		      time = test_functions[test](p.first, p.second, cpu, load, func);
-		      printf("ch_len=%4d no_chains=%5ld, %s %s cpu.aff=%d load=%dx time_a=%8ld time_b=%8ld\n",
+		      printf("active_size=%10lu ch_len=%4d no_chains=%5ld, %s %s(%2d) cpu.aff=%d load=%dx time_a=%8ld time_b=%8ld\n",
+			     active_size,
 			     chain_len, p.second, 
 			     test_names[test], mode==0?"write":"read ", 
+			     proc_sizes[f],
 			     cpu, load, 
 			     time.first, time.second);
 			     
 		    }
-		  free(p.first);
 		}
 	    }
 	}
+    free(p.first);
   }
 
       
