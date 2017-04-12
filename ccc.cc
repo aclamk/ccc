@@ -292,69 +292,6 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 
 
 
-std::pair<uint64_t, uint64_t> multi_thread_fully_separated(char* data, size_t no_chains, int cpu, int load, func_t func)
-{
-  sem_t first_done;
-  sem_t second_done;
-
-  sem_init(&first_done, 0, 0);
-  sem_init(&second_done, 0, 0);
-
-  std::atomic<uint64_t> time_a(0);
-  std::atomic<uint64_t> time_b(0);
-
-  std::thread first_action = 
-    std::thread([&]()
-      {
-	set_affinity(0);
-	uint64_t time = 0;
-	for (size_t k=0; k<10; k++)
-	  {
-	    for (size_t i=0; i<no_chains; i+=2)
-	      {
-		time -= now_usec();
-		for(int l=0;l<load;l++) {
-		  func(chain_begin(data, i));
-		  func(chain_begin(data, i));
-		}
-		time += now_usec();
-		sem_post(&first_done);
-		sem_wait(&second_done);
-	      }
-	  }
-	time_a += time;
-      }
-  );
-
-  std::thread second_action = 
-    std::thread([&]()
-      {
-	set_affinity(cpu);
-	uint64_t time = 0;
-	for (size_t k=0; k<10; k++)
-	  {
-	    for (size_t i=0; i<no_chains; i+=2)
-	      {
-		time -= now_usec();
-		for(int l=0;l<load;l++) {
-		  func(chain_begin(data, i+1));
-		  func(chain_begin(data, i+1));
-		}
-		time += now_usec();
-		sem_post(&second_done);
-		sem_wait(&first_done);
-	      }
-	  }
-	time_b += time;
-      }
-  );
-  first_action.join();
-  second_action.join();
-  return std::make_pair(time_a.load(), time_b.load());
-
-  printf("SEPARATED total_time = %ld %ld\n", time_a.load(), time_b.load() );
-}
-
 
 
 std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains, int cpu, int load, func_t func)
@@ -490,21 +427,18 @@ set_affinity(3);
 
 		  std::pair<uint64_t, uint64_t> solowork_time;
 		  std::pair<uint64_t, uint64_t> cowork_time;
-		  std::pair<uint64_t, uint64_t> separated_time;
 
 		  solowork_time = multi_thread_solowork(p.first, p.second, cpu, load, func);
 		  cowork_time = multi_thread_cowork(p.first, p.second, cpu, load, func);
-		  //separated_time = multi_thread_fully_separated(p.first, p.second, cpu, load, func);
-
-		  printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu.aff=%d load=%dx "
-			 "solo=%8ld cowork_a=%8ld cowork_b=%8ld sep_a=%8ld sep_b=%8ld\n",
+		  printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu.aff=%2d load=%dx "
+			 "solo=%8ld cowork_a=%8ld cowork_b=%8ld\n",
 			 active_size,
 			 chain_len, p.second, 
 			 mode==0?"write":"read ", 
 			 proc_sizes[f],
 			 cpu, load, 
-			 solowork_time.first, cowork_time.first, cowork_time.second, 
-			 separated_time.first, separated_time.second);
+			 solowork_time.first, cowork_time.first, cowork_time.second 
+			 );
 			     
 		}
 	    }
