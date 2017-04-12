@@ -127,33 +127,36 @@ void generate_sequences(const uint16_t* perm, size_t perm_size,
 template <int cnt>
 void add_front(working_entry* w)
 {
+  alignas(64) static char xxx[cnt];
   static_assert(cnt<=sizeof(working_entry::content), "write range exceeds buffer");
+  //int len=0;
   while (w != nullptr) 
     {
-      for (size_t i = 0 ; i < cnt ; i++)
+      //for (size_t i = 0 ; i < cnt ; i++)
 	{
-	  w->content[i] += (i+1);
+	  //w->content[i] += (i+1);
+	  memcpy(w->content, xxx, sizeof(xxx));
 	}
+      //len++;
       w = w->next;
     }
+  //printf("%d\n",len);
 }
 
 template <int cnt>
 void just_read(working_entry* w)
 {
-  char m=0;
+  static char xxx[cnt];
   static_assert(cnt<=sizeof(working_entry::content), "write range exceeds buffer");
   while (w != nullptr) 
     {
-      for (size_t i = 0 ; i < cnt ; i++)
+      //for (size_t i = 0 ; i < cnt ; i++)
 	{
-	  m += w->content[i];
+	  memcpy(xxx, w->content, sizeof(xxx));
+
 	}
-      if(w->next == nullptr)
-	break;
       w = w->next;
     }
-  w->content[0]=m;
 }
 
 
@@ -213,11 +216,14 @@ working_entry* chain_begin(char* data, size_t i)
 
 std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, int cpu, int load, func_t func)
 {
-  sem_t first_done;
-  sem_t second_done;
+  //sem_t first_done;
+  //sem_t second_done;
 
-  sem_init(&first_done, 0, 0);
-  sem_init(&second_done, 0, 0);
+  //sem_init(&first_done, 0, 0);
+  //sem_init(&second_done, 0, 0);
+
+  std::atomic<uint32_t> first_done(0);
+  std::atomic<uint32_t> second_done(0);
 
   std::atomic<uint64_t> time_a(0);
   std::atomic<uint64_t> time_b(0);
@@ -230,13 +236,21 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 	for (size_t k=0; k<10; k++)
 	  {
 	    for (size_t i=0; i<no_chains; i++)
-	      {
+	      for(int l=0;l<load;l++)
+		{
 		time -= now_usec();
-		for(int l=0;l<load;l++)
-		  func(chain_begin(data, i));
+		
+		//func(chain_begin(data, i));
+		func(chain_begin(data, (i&~1) + (((i+l)&1)) ));
 		time += now_usec();
-		sem_post(&first_done);
-		sem_wait(&second_done);
+		
+		first_done++;
+		//sem_post(&first_done);
+		
+		while(second_done.load()==0);
+		second_done--;
+		//sem_post(&first_done);
+		//sem_wait(&second_done);
 	      }
 	  }
 	time_a += time;
@@ -251,13 +265,20 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 	for (size_t k=0; k<10; k++)
 	  {
 	    for (size_t i=0; i<no_chains; i++)
+	      for(int l=0;l<load;l++)
 	      {
 		time -= now_usec();
-		for(int l=0;l<load;l++)
-		  func(chain_begin(data, (i&~1) + (1 - (i&1)) ));
+		func(chain_begin(data, (i&~1) + (1 - ((i+l)&1)) ));
 		time += now_usec();
-		sem_post(&second_done);
-		sem_wait(&first_done);
+
+
+		second_done++;
+		//sem_post(&second_done);
+		while(first_done.load()==0);
+		first_done--;
+
+		//		sem_post(&second_done);
+		//sem_wait(&first_done);
 	      }
 	  }
 	time_b += time;
@@ -338,11 +359,15 @@ std::pair<uint64_t, uint64_t> multi_thread_fully_separated(char* data, size_t no
 
 std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains, int cpu, int load, func_t func)
 {
-  sem_t first_done;
-  sem_t second_done;
+  //sem_t first_done;
+  //sem_t second_done;
 
-  sem_init(&first_done, 0, 0);
-  sem_init(&second_done, 0, 0);
+  //sem_init(&first_done, 0, 0);
+  //sem_init(&second_done, 0, 0);
+
+  alignas(64) std::atomic<uint32_t> first_done(0);
+  alignas(64) std::atomic<uint32_t> second_done(0);
+
   std::atomic<uint64_t> time_a(0);
   std::atomic<uint64_t> time_b(0);
 
@@ -354,15 +379,20 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
 	for (size_t k=0; k<10; k++)
 	  {
 	    for (size_t i=0; i<no_chains; i++)
-	      {
+	      for(int l=0;l<load;l++)
+		{
 		time -= now_usec();
-		for(int l=0;l<load;l++) {
+		 {
 		  func(chain_begin(data, i));
 		  func(chain_begin(data, i));
 		}
 		time += now_usec();
-		sem_post(&first_done);
-		sem_wait(&second_done);
+		first_done++;
+		//sem_post(&first_done);
+		
+		while(second_done.load()==0);
+		second_done--;
+		//sem_wait(&second_done);
 	      }
 	  }
 	time_a += time;
@@ -377,11 +407,15 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
 	for (size_t k=0; k<10; k++)
 	  {
 	    for (size_t i=0; i<no_chains; i++)
+	      for(int l=0;l<load;l++)
 	      {
 		time -= now_usec();
 		time += now_usec();
-		sem_post(&second_done);
-		sem_wait(&first_done);
+		second_done++;
+		//sem_post(&second_done);
+		while(first_done.load()==0);
+		first_done--;
+		//sem_wait(&first_done);
 	      }
 	  }
 	time_b += time;
@@ -420,6 +454,7 @@ typedef std::pair<uint64_t, uint64_t> (*test_func_t)(char* data, size_t no_chain
 
 int main(int argc, char** argv)
 {
+set_affinity(3);
   for (size_t active_size=cache_size; active_size<=cache_size*3; active_size+=cache_size)
 
     for (int chain_len=32; chain_len<=1024; chain_len*=2)
@@ -441,17 +476,6 @@ int main(int argc, char** argv)
       just_read<proc_sizes[3]>,
       just_read<proc_sizes[4]>};
 
-    constexpr test_func_t test_functions[3]={
-      multi_thread_solowork,
-      multi_thread_cowork,
-      multi_thread_fully_separated
-    };
-    const char* test_names[3]={
-      "solowork ",
-      "cowork   ",
-      "separated"
-    };
-
     std::pair<char*,size_t> p;
     p = generate(active_size, chain_len);
 
@@ -462,27 +486,26 @@ int main(int argc, char** argv)
 	    {
 	      for(int load=1; load<=4; load++)
 		{
-		  /*
-		  printf("A cache_size_multiplier=%d chain_depth=%d no_chains = %ld\n", x,y,p.second);
-		  printf("mode=%s processing_size = %d cpu=%d load=%d\n", 
-			 mode==0?"write":"read ",
-			 proc_sizes[f], cpu,load);
-		  */
 		  func_t func = mode==0?write_functions[f]:read_functions[f];
 
-		  std::pair<uint64_t, uint64_t> time;
-		  for(int test=0; test<=2; test++)
-		    {
-		      time = test_functions[test](p.first, p.second, cpu, load, func);
-		      printf("active_size=%10lu ch_len=%4d no_chains=%5ld, %s %s(%2d) cpu.aff=%d load=%dx time_a=%8ld time_b=%8ld\n",
-			     active_size,
-			     chain_len, p.second, 
-			     test_names[test], mode==0?"write":"read ", 
-			     proc_sizes[f],
-			     cpu, load, 
-			     time.first, time.second);
+		  std::pair<uint64_t, uint64_t> solowork_time;
+		  std::pair<uint64_t, uint64_t> cowork_time;
+		  std::pair<uint64_t, uint64_t> separated_time;
+
+		  solowork_time = multi_thread_solowork(p.first, p.second, cpu, load, func);
+		  cowork_time = multi_thread_cowork(p.first, p.second, cpu, load, func);
+		  //separated_time = multi_thread_fully_separated(p.first, p.second, cpu, load, func);
+
+		  printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu.aff=%d load=%dx "
+			 "solo=%8ld cowork_a=%8ld cowork_b=%8ld sep_a=%8ld sep_b=%8ld\n",
+			 active_size,
+			 chain_len, p.second, 
+			 mode==0?"write":"read ", 
+			 proc_sizes[f],
+			 cpu, load, 
+			 solowork_time.first, cowork_time.first, cowork_time.second, 
+			 separated_time.first, separated_time.second);
 			     
-		    }
 		}
 	    }
 	}
