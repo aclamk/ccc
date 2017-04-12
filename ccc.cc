@@ -235,13 +235,13 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 	uint64_t time = 0;
 	for (size_t k=0; k<10; k++)
 	  {
-	    for (size_t i=0; i<no_chains; i++)
+	    for (size_t i=0; i<no_chains; i+=2)
 	      for(int l=0;l<load;l++)
 		{
 		time -= now_usec();
 		
 		//func(chain_begin(data, i));
-		func(chain_begin(data, (i&~1) + (((i+l)&1)) ));
+		func(chain_begin(data, (i) + (l&1) ));
 		time += now_usec();
 		
 		first_done++;
@@ -252,6 +252,8 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 		//sem_post(&first_done);
 		//sem_wait(&second_done);
 	      }
+	    if(k==0) time = 0;
+
 	  }
 	time_a += time;
       }
@@ -264,11 +266,11 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 	uint64_t time = 0;
 	for (size_t k=0; k<10; k++)
 	  {
-	    for (size_t i=0; i<no_chains; i++)
+	    for (size_t i=0; i<no_chains; i+=2)
 	      for(int l=0;l<load;l++)
 	      {
 		time -= now_usec();
-		func(chain_begin(data, (i&~1) + (1 - ((i+l)&1)) ));
+		func(chain_begin(data, (i) + (1-(l&1)) ));
 		time += now_usec();
 
 
@@ -280,6 +282,8 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 		//		sem_post(&second_done);
 		//sem_wait(&first_done);
 	      }
+	    if(k==0) time = 0;
+
 	  }
 	time_b += time;
       }
@@ -331,6 +335,7 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
 		second_done--;
 		//sem_wait(&second_done);
 	      }
+	    if(k==0) time = 0;
 	  }
 	time_a += time;
       }
@@ -421,7 +426,7 @@ set_affinity(3);
 	{
 	  for(int cpu=1; cpu<=2; cpu++)
 	    {
-	      for(int load=1; load<=4; load++)
+	      for(int load=1; load<=3; load++)
 		{
 		  func_t func = mode==0?write_functions[f]:read_functions[f];
 
