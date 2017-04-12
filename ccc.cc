@@ -14,7 +14,7 @@ constexpr size_t cache_size = 8192*1024;
 
 constexpr size_t entries = cache_size / cache_line_size;
 
-
+constexpr size_t hard_repeats = 10;
 
 
 
@@ -233,24 +233,18 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
       {
 	set_affinity(0);
 	uint64_t time = 0;
-	for (size_t k=0; k<10; k++)
+	for (size_t k=0; k<hard_repeats; k++)
 	  {
 	    for (size_t i=0; i<no_chains; i+=2)
-	      for(int l=0;l<load;l++)
+	      for(int l=0;l<load*2;l++)
 		{
-		time -= now_usec();
-		
-		//func(chain_begin(data, i));
-		func(chain_begin(data, (i) + (l&1) ));
+		time -= now_usec();		
+		func(chain_begin(data, (i&~1) + (l&1) ));
 		time += now_usec();
 		
 		first_done++;
-		//sem_post(&first_done);
-		
 		while(second_done.load()==0);
 		second_done--;
-		//sem_post(&first_done);
-		//sem_wait(&second_done);
 	      }
 	    if(k==0) time = 0;
 
@@ -264,23 +258,18 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
       {
 	set_affinity(cpu);
 	uint64_t time = 0;
-	for (size_t k=0; k<10; k++)
+	for (size_t k=0; k<hard_repeats; k++)
 	  {
 	    for (size_t i=0; i<no_chains; i+=2)
-	      for(int l=0;l<load;l++)
+	      for(int l=0;l<load*2;l++)
 	      {
 		time -= now_usec();
-		func(chain_begin(data, (i) + (1-(l&1)) ));
+		func(chain_begin(data, (i&~1) + (1-(l&1)) ));
 		time += now_usec();
 
-
 		second_done++;
-		//sem_post(&second_done);
 		while(first_done.load()==0);
 		first_done--;
-
-		//		sem_post(&second_done);
-		//sem_wait(&first_done);
 	      }
 	    if(k==0) time = 0;
 
@@ -317,7 +306,7 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
       {
 	set_affinity(0);
 	uint64_t time = 0;
-	for (size_t k=0; k<10; k++)
+	for (size_t k=0; k<hard_repeats; k++)
 	  {
 	    for (size_t i=0; i<no_chains; i++)
 	      for(int l=0;l<load;l++)
@@ -346,7 +335,7 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
       {
 	set_affinity(cpu);
 	uint64_t time = 0;
-	for (size_t k=0; k<10; k++)
+	for (size_t k=0; k<hard_repeats; k++)
 	  {
 	    for (size_t i=0; i<no_chains; i++)
 	      for(int l=0;l<load;l++)
@@ -398,7 +387,6 @@ int main(int argc, char** argv)
 {
 set_affinity(3);
   for (size_t active_size=cache_size; active_size<=cache_size*3; active_size+=cache_size)
-
     for (int chain_len=32; chain_len<=1024; chain_len*=2)
   {
     constexpr int proc_sizes[5]=
@@ -435,7 +423,7 @@ set_affinity(3);
 
 		  solowork_time = multi_thread_solowork(p.first, p.second, cpu, load, func);
 		  cowork_time = multi_thread_cowork(p.first, p.second, cpu, load, func);
-		  printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu.aff=%2d load=%dx "
+		  printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu=%2d %dx "
 			 "solo=%8ld cowork_a=%8ld cowork_b=%8ld\n",
 			 active_size,
 			 chain_len, p.second, 
