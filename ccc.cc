@@ -10,7 +10,7 @@
 #include <thread>
 #include <atomic>
 static constexpr size_t cache_line_size = 64;
-constexpr size_t cache_size = 8192*1024;
+constexpr size_t cache_size = 8192*1024/4;
 
 constexpr size_t entries = cache_size / cache_line_size;
 
@@ -386,7 +386,7 @@ typedef std::pair<uint64_t, uint64_t> (*test_func_t)(char* data, size_t no_chain
 int main(int argc, char** argv)
 {
 set_affinity(3);
-  for (size_t active_size=cache_size; active_size<=cache_size*3; active_size+=cache_size)
+  for (size_t active_size=cache_size; active_size<=cache_size*8; active_size+=cache_size)
     for (int chain_len=32; chain_len<=1024; chain_len*=2)
   {
     constexpr int proc_sizes[5]=
@@ -408,13 +408,14 @@ set_affinity(3);
 
     std::pair<char*,size_t> p;
     p = generate(active_size, chain_len);
+    size_t test_cache_lines = active_size/ cache_line_size;
 
-    for (int mode=0; mode<=1; mode++)
-      for (int f=0; f<5; f++)
+    for (int mode=0; mode<=1/*1*/; mode++)
+      for (int f=0; f<1/*5*/; f++)
 	{
 	  for(int cpu=1; cpu<=2; cpu++)
 	    {
-	      for(int load=1; load<=3; load++)
+	      for(int load=1; load<=6/*3*/; load++)
 		{
 		  func_t func = mode==0?write_functions[f]:read_functions[f];
 
@@ -423,14 +424,16 @@ set_affinity(3);
 
 		  solowork_time = multi_thread_solowork(p.first, p.second, cpu, load, func);
 		  cowork_time = multi_thread_cowork(p.first, p.second, cpu, load, func);
-		  printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu=%2d %dx "
-			 "solo=%8ld cowork_a=%8ld cowork_b=%8ld\n",
+		  printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu=%2d %2dx "
+			 "solo=%8lf cowork_a=%8lf cowork_b=%8lf\n",
 			 active_size,
 			 chain_len, p.second, 
 			 mode==0?"write":"read ", 
 			 proc_sizes[f],
 			 cpu, load, 
-			 solowork_time.first, cowork_time.first, cowork_time.second 
+			 (double)solowork_time.first/(double)test_cache_lines, 
+			 (double)cowork_time.first/(double)test_cache_lines, 
+			 (double)cowork_time.second/(double)test_cache_lines 
 			 );
 			     
 		}
@@ -443,3 +446,13 @@ set_affinity(3);
   
 
 }
+
+
+/*
+1. cost of fetching data to L1 (function of underlying data size) as idealized 0th iteration
+2. cost of eviction of changed cache row (function of underlying data size) as diff (write - read)
+3. cost of operating on cache row (full data input/(operation.size)), calculated by reoperation on same data
+4. cost of migrating modified cache row (underlying data size/cpus)
+5. 
+
+*/
