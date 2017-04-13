@@ -9,6 +9,8 @@
 #include <semaphore.h>
 #include <thread>
 #include <atomic>
+#include <vector>
+
 static constexpr size_t cache_line_size = 64;
 constexpr size_t cache_size = 8192*1024/4;
 
@@ -385,74 +387,94 @@ typedef std::pair<uint64_t, uint64_t> (*test_func_t)(char* data, size_t no_chain
 
 int main(int argc, char** argv)
 {
-set_affinity(3);
-  for (size_t active_size=cache_size; active_size<=cache_size*8; active_size+=cache_size)
-    for (int chain_len=32; chain_len<=1024; chain_len*=2)
-  {
-    constexpr int proc_sizes[5]=
-      {
-	1,4,16,32,sizeof(working_entry::content)
-      };
-    constexpr func_t write_functions[5]={
-      add_front<proc_sizes[0]>,
-      add_front<proc_sizes[1]>,
-      add_front<proc_sizes[2]>,
-      add_front<proc_sizes[3]>,
-      add_front<proc_sizes[4]>};
-    constexpr func_t read_functions[5]={
-      just_read<proc_sizes[0]>,
-      just_read<proc_sizes[1]>,
-      just_read<proc_sizes[2]>,
-      just_read<proc_sizes[3]>,
-      just_read<proc_sizes[4]>};
+  constexpr int proc_sizes[5]=
+    {
+      1,4,16,32,sizeof(working_entry::content)
+    };
+  constexpr func_t write_functions[5]={
+    add_front<proc_sizes[0]>,
+    add_front<proc_sizes[1]>,
+    add_front<proc_sizes[2]>,
+    add_front<proc_sizes[3]>,
+    add_front<proc_sizes[4]>};
+  constexpr func_t read_functions[5]={
+    just_read<proc_sizes[0]>,
+    just_read<proc_sizes[1]>,
+    just_read<proc_sizes[2]>,
+    just_read<proc_sizes[3]>,
+    just_read<proc_sizes[4]>};
 
-    std::pair<char*,size_t> p;
-    p = generate(active_size, chain_len);
-    size_t test_cache_lines = active_size/ cache_line_size;
 
-    for (int mode=0; mode<=1/*1*/; mode++)
-      for (int f=0; f<1/*5*/; f++)
-	{
-	  for(int cpu=1; cpu<=2; cpu++)
-	    {
-	      for(int load=1; load<=6/*3*/; load++)
-		{
-		  func_t func = mode==0?write_functions[f]:read_functions[f];
-
-		  std::pair<uint64_t, uint64_t> solowork_time;
-		  std::pair<uint64_t, uint64_t> cowork_time;
-
-		  solowork_time = multi_thread_solowork(p.first, p.second, cpu, load, func);
-		  cowork_time = multi_thread_cowork(p.first, p.second, cpu, load, func);
-		  printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu=%2d %2dx "
-			 "solo=%8lf cowork_a=%8lf cowork_b=%8lf\n",
-			 active_size,
-			 chain_len, p.second, 
-			 mode==0?"write":"read ", 
-			 proc_sizes[f],
-			 cpu, load, 
-			 (double)solowork_time.first/(double)test_cache_lines, 
-			 (double)cowork_time.first/(double)test_cache_lines, 
-			 (double)cowork_time.second/(double)test_cache_lines 
-			 );
-			     
-		}
-	    }
-	}
-    free(p.first);
-  }
-
-      
+  std::vector<int> active_sizes{1024*1024*2,1024*1024*4,1024*1024*8,1024*1024*16,1024*1024*32};
+  std::vector<int> chain_lens{32,64,128,256,512,1024};
+  std::vector<int> cpus{1,2};
   
 
+  for (size_t active_size:active_sizes)
+    for (int chain_len:chain_lens)
+      {
+	std::pair<char*,size_t> p;
+	p = generate(active_size, chain_len);
+	size_t test_cache_lines = active_size/ cache_line_size;
+
+	for (int mode=0; mode<=1; mode++)
+	  for (int f=0; f<1/*5*/; f++)
+	    {
+	      for(int cpu:cpus)
+		{
+		  constexpr int load_cnt=6;
+		  double solo[load_cnt];
+		  double cowork_a[load_cnt];
+		  double cowork_b[load_cnt];
+		  for(int load=1; load<=load_cnt; load++)
+		    {
+		      func_t func = mode==0?write_functions[f]:read_functions[f];
+
+		      std::pair<uint64_t, uint64_t> solowork_time;
+		      std::pair<uint64_t, uint64_t> cowork_time;
+
+		      solowork_time = multi_thread_solowork(p.first, p.second, cpu, load, func);
+		      cowork_time = multi_thread_cowork(p.first, p.second, cpu, load, func);
+		      printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu=%2d %2dx "
+			     "solo=%8lf cowork_a=%8lf cowork_b=%8lf\n",
+			     active_size,
+			     chain_len, p.second, 
+			     mode==0?"write":"read ", 
+			     proc_sizes[f],
+			     cpu, load, 
+			     (double)solowork_time.first/(double)test_cache_lines, 
+			     (double)cowork_time.first/(double)test_cache_lines, 
+			     (double)cowork_time.second/(double)test_cache_lines 
+			     );
+		      solo[load-1] = (double)solowork_time.first/(double)test_cache_lines;
+		      cowork_a[load-1] = (double)cowork_time.first/(double)test_cache_lines;
+		      cowork_b[load-1] = (double)cowork_time.second/(double)test_cache_lines;
+		    }
+		  double sum=0;
+		  double cx=0;
+		  double cy=0;
+		  for(double s:solo)
+		    cy+=s;
+		  cy=cy/load_cnt;
+		  cx=3.5;
+		  for(int i=1;i<=load_cnt;i++)
+		    sum+=(solo[i-1]-cy)/(i-cx);
+		  sum=sum/load_cnt;
+		  printf("%lf\n",sum);
+		}
+	    }
+	free(p.first);
+      }
+
+ 
 }
 
 
 /*
 1. cost of fetching data to L1 (function of underlying data size) as idealized 0th iteration
 2. cost of eviction of changed cache row (function of underlying data size) as diff (write - read)
-3. cost of operating on cache row (full data input/(operation.size)), calculated by reoperation on same data
-4. cost of migrating modified cache row (underlying data size/cpus)
+3. cost of operating on cache row (), calculated by reoperation on same data
+4. cost of migrating modified cache row (cpus/data size/sample size)
 5. 
 
 */
