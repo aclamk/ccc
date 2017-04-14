@@ -216,7 +216,10 @@ working_entry* chain_begin(char* data, size_t i)
 
 
 
-std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, int cpu, int load, func_t func)
+std::pair<uint64_t, uint64_t> multi_thread_cowork(
+    char* data, size_t no_chains, 
+    std::vector<std::pair<int,int>>& cpu_sets, 
+    int load, func_t func)
 {
   //sem_t first_done;
   //sem_t second_done;
@@ -224,24 +227,40 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
   //sem_init(&first_done, 0, 0);
   //sem_init(&second_done, 0, 0);
 
-  std::atomic<uint32_t> first_done(0);
-  std::atomic<uint32_t> second_done(0);
+  //std::atomic<uint32_t> first_done(0);
+  //std::atomic<uint32_t> second_done(0);
+  std::atomic<uint32_t> first_done_x[cpu_sets.size()];
+  std::atomic<uint32_t> second_done_x[cpu_sets.size()];
+  for(auto& a:first_done_x)
+    a.store(0);
+  for(auto& a:second_done_x)
+    a.store(0);
 
   std::atomic<uint64_t> time_a(0);
   std::atomic<uint64_t> time_b(0);
 
-  std::thread first_action = 
-    std::thread([&]()
+  int count;
+  std::vector<std::thread> threads;
+
+  for (int c=0;c<cpu_sets.size();c++)
+    {
+      //first_done_x.emplace_back(0);
+  //std::thread first_action = 
+  threads.push_back(
+    std::thread([&,c]()
       {
-	set_affinity(0);
+	std::atomic<uint32_t>& first_done=first_done_x[c];
+	std::atomic<uint32_t>& second_done=second_done_x[c];
+
+	set_affinity(cpu_sets[c].first);
 	uint64_t time = 0;
 	for (size_t k=0; k<hard_repeats; k++)
 	  {
-	    for (size_t i=0; i<no_chains; i+=2)
-	      for(int l=0;l<load*2;l++)
+	    for (size_t i=0; i<no_chains; i+=cpu_sets.size())
+	      for(int l=0;l<load;l++)
 		{
 		time -= now_usec();		
-		func(chain_begin(data, (i&~1) + (l&1) ));
+		func(chain_begin(data, i+c ));
 		time += now_usec();
 		
 		first_done++;
@@ -253,34 +272,48 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 	  }
 	time_a += time;
       }
+    )
   );
 
-  std::thread second_action = 
-    std::thread([&]()
+  //  std::thread second_action = 
+
+  threads.push_back(		   
+    std::thread([&,c]()
       {
-	set_affinity(cpu);
+	std::atomic<uint32_t>& first_done=first_done_x[c];
+	std::atomic<uint32_t>& second_done=second_done_x[c];
+
+	set_affinity(cpu_sets[c].second);
 	uint64_t time = 0;
 	for (size_t k=0; k<hard_repeats; k++)
 	  {
-	    for (size_t i=0; i<no_chains; i+=2)
-	      for(int l=0;l<load*2;l++)
+	    for (size_t i=0; i<no_chains; i+=cpu_sets.size())
+	      for(int l=0;l<load;l++)
 	      {
-		time -= now_usec();
-		func(chain_begin(data, (i&~1) + (1-(l&1)) ));
-		time += now_usec();
-
-		second_done++;
 		while(first_done.load()==0);
 		first_done--;
+		second_done++;
+
+		time -= now_usec();
+		func(chain_begin(data, i+c ));
+		time += now_usec();
+
+		//second_done++;
+		//while(first_done.load()==0);
+		//first_done--;
 	      }
 	    if(k==0) time = 0;
 
 	  }
 	time_b += time;
       }
+    )
   );
-  first_action.join();
-  second_action.join();
+    };
+  for(auto& t:threads)
+    t.join();
+  //  first_action.join();
+  // second_action.join();
   return std::make_pair(time_a.load(), time_b.load());
   printf("COWORK    total_time = %ld %ld\n", time_a.load(), time_b.load());
 }
@@ -289,7 +322,10 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(char* data, size_t no_chains, 
 
 
 
-std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains, int cpu, int load, func_t func)
+std::pair<uint64_t, uint64_t> multi_thread_solowork(
+    char* data, size_t no_chains, 
+    std::vector<std::pair<int,int>>& cpu_sets, 
+    int load, func_t func)
 {
   //sem_t first_done;
   //sem_t second_done;
@@ -306,7 +342,7 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
   std::thread first_action = 
     std::thread([&]()
       {
-	set_affinity(0);
+	set_affinity(cpu_sets[0].first);
 	uint64_t time = 0;
 	for (size_t k=0; k<hard_repeats; k++)
 	  {
@@ -316,15 +352,13 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
 		time -= now_usec();
 		 {
 		  func(chain_begin(data, i));
-		  func(chain_begin(data, i));
+		  //func(chain_begin(data, i));
 		}
 		time += now_usec();
+
 		first_done++;
-		//sem_post(&first_done);
-		
 		while(second_done.load()==0);
 		second_done--;
-		//sem_wait(&second_done);
 	      }
 	    if(k==0) time = 0;
 	  }
@@ -335,7 +369,7 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
   std::thread second_action = 
     std::thread([&]()
       {
-	set_affinity(cpu);
+	set_affinity(cpu_sets[0].second);
 	uint64_t time = 0;
 	for (size_t k=0; k<hard_repeats; k++)
 	  {
@@ -344,11 +378,10 @@ std::pair<uint64_t, uint64_t> multi_thread_solowork(char* data, size_t no_chains
 	      {
 		time -= now_usec();
 		time += now_usec();
+
 		second_done++;
-		//sem_post(&second_done);
 		while(first_done.load()==0);
 		first_done--;
-		//sem_wait(&first_done);
 	      }
 	  }
 	time_b += time;
@@ -408,17 +441,23 @@ int main(int argc, char** argv)
   std::vector<int> active_sizes{1024*1024*2,1024*1024*4,1024*1024*8,1024*1024*16,1024*1024*32};
   std::vector<int> chain_lens{32,64,128,256,512,1024};
   std::vector<int> cpus{1,2};
-  
+  std::vector<std::pair<int,int>> cpu_sets{{0,1},{2,3}};
+
+  std::vector<double> l1_operate;
+  l1_operate.resize(chain_lens.size());
+  std::vector<double> cow_operate;
+  cow_operate.resize(chain_lens.size());
 
   for (size_t active_size:active_sizes)
-    for (int chain_len:chain_lens)
+    for (int ch_idx=0; ch_idx<chain_lens.size(); ch_idx++)
       {
+	int chain_len = chain_lens[ch_idx];
 	std::pair<char*,size_t> p;
 	p = generate(active_size, chain_len);
 	size_t test_cache_lines = active_size/ cache_line_size;
 
 	for (int mode=0; mode<=1; mode++)
-	  for (int f=0; f<1/*5*/; f++)
+	  for (int f=0; f<5/*5*/; f++)
 	    {
 	      for(int cpu:cpus)
 		{
@@ -433,12 +472,12 @@ int main(int argc, char** argv)
 		      std::pair<uint64_t, uint64_t> solowork_time;
 		      std::pair<uint64_t, uint64_t> cowork_time;
 
-		      solowork_time = multi_thread_solowork(p.first, p.second, cpu, load, func);
-		      cowork_time = multi_thread_cowork(p.first, p.second, cpu, load, func);
-		      printf("active_size=%10lu ch_len=%4d no_chains=%5ld %s(%2d) cpu=%2d %2dx "
+		      solowork_time = multi_thread_solowork(p.first, p.second, cpu_sets, load, func);
+		      cowork_time = multi_thread_cowork(p.first, p.second, cpu_sets, load, func);
+		      printf("active_size=%10lu ch_len=%4d %s(%2d) cpu=%2d %2dx "
 			     "solo=%8lf cowork_a=%8lf cowork_b=%8lf\n",
 			     active_size,
-			     chain_len, p.second, 
+			     chain_len, 
 			     mode==0?"write":"read ", 
 			     proc_sizes[f],
 			     cpu, load, 
@@ -461,6 +500,26 @@ int main(int argc, char** argv)
 		    sum+=(solo[i-1]-cy)/(i-cx);
 		  sum=sum/load_cnt;
 		  printf("%lf\n",sum);
+		  l1_operate[ch_idx]=l1_operate[ch_idx]+sum;
+		  for(double d:l1_operate) 
+		    printf("%lf ",d);
+		  printf("\n");
+
+		  cx=cy=0;
+		  for(double s:cowork_a)
+		    cy+=s;
+		  cy=cy/load_cnt;
+		  cx=3.5;
+		  for(int i=1;i<=load_cnt;i++)
+		    sum+=(solo[i-1]-cy)/(i-cx);
+		  sum=sum/load_cnt;
+		  printf("%lf\n",sum);
+		  cow_operate[ch_idx]=cow_operate[ch_idx]+sum;
+		  for(double d:cow_operate) 
+		    printf("%lf ",d);
+		  printf("\n");
+
+
 		}
 	    }
 	free(p.first);
