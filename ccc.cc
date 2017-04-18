@@ -23,6 +23,7 @@ constexpr size_t hard_repeats = 10;
 struct working_entry 
 {
   working_entry* next;
+  //std::atomic<char> 
   char content[cache_line_size - sizeof(working_entry*)];
 };
 
@@ -134,16 +135,18 @@ void add_front(working_entry* w)
   //int len=0;
   while (w != nullptr) 
     {
-      //for (size_t i = 0 ; i < cnt ; i++)
+      for (size_t i = 0 ; i < cnt ; i++)
 	{
-	  //w->content[i] += (i+1);
-	  memcpy(w->content, xxx, sizeof(xxx));
+	  w->content[i] += (i+1);
+	  //memcpy(w->content, xxx, sizeof(xxx));
 	}
       //len++;
       w = w->next;
     }
   //printf("%d\n",len);
 }
+
+
 
 template <int cnt>
 void just_read(working_entry* w)
@@ -152,9 +155,10 @@ void just_read(working_entry* w)
   static_assert(cnt<=sizeof(working_entry::content), "write range exceeds buffer");
   while (w != nullptr) 
     {
-      //for (size_t i = 0 ; i < cnt ; i++)
+      for (size_t i = 0 ; i < cnt ; i++)
 	{
-	  memcpy(xxx, w->content, sizeof(xxx));
+	  //	  memcpy(xxx, w->content, sizeof(xxx));
+	  xxx[i]+=w->content[i];//.load();
 
 	}
       w = w->next;
@@ -162,12 +166,20 @@ void just_read(working_entry* w)
 }
 
 
+
 template <int cnt>
 void add_end(working_entry* w)
 {
   static_assert(cnt<=sizeof(working_entry::content), "write range exceeds buffer");
-  while (w != nullptr) 
+  //while (w != nullptr) 
     {
+      for (size_t i=0; i<100000; i++)
+	{
+	  char* ptr = &w->content[sizeof(working_entry::content)-1];
+	  while (*ptr==0) 
+	    (*ptr)++,ptr--;
+	  (*ptr)++;
+	}
       for (size_t i = 0 ; i < cnt ; i++)
 	{
 	  w->content[sizeof(working_entry::content)-1-i] += (i+1);
@@ -175,7 +187,6 @@ void add_end(working_entry* w)
       w = w->next;
     }
 }
-
 
 
 
@@ -190,6 +201,9 @@ void add(working_entry* w)
       w = w->next;
     }
 }
+
+
+
 
 
 typedef void (*func_t)(working_entry* w);
@@ -317,6 +331,109 @@ std::pair<uint64_t, uint64_t> multi_thread_cowork(
   return std::make_pair(time_a.load(), time_b.load());
   printf("COWORK    total_time = %ld %ld\n", time_a.load(), time_b.load());
 }
+
+
+
+std::pair<uint64_t, uint64_t> multi_thread_cowork_2(
+    char* data, size_t no_chains, 
+    std::vector<std::pair<int,int>>& cpu_sets, 
+    int load, func_t func)
+{
+  //sem_t first_done;
+  //sem_t second_done;
+
+  //sem_init(&first_done, 0, 0);
+  //sem_init(&second_done, 0, 0);
+
+  //std::atomic<uint32_t> first_done(0);
+  //std::atomic<uint32_t> second_done(0);
+  std::atomic<uint32_t> first_done_x[cpu_sets.size()];
+  std::atomic<uint32_t> second_done_x[cpu_sets.size()];
+  for(auto& a:first_done_x)
+    a.store(0);
+  for(auto& a:second_done_x)
+    a.store(0);
+
+  std::atomic<uint64_t> time_a(0);
+  std::atomic<uint64_t> time_b(0);
+
+  int count;
+  std::vector<std::thread> threads;
+
+  for (int c=0;c<1/*cpu_sets.size()*/;c++)
+    {
+      //first_done_x.emplace_back(0);
+  //std::thread first_action = 
+  threads.push_back(
+    std::thread([&,c]()
+      {
+	std::atomic<uint32_t>& first_done=first_done_x[c];
+	std::atomic<uint32_t>& second_done=second_done_x[c];
+
+	set_affinity(cpu_sets[c].first);
+	uint64_t time = 0;
+	for (size_t k=0; k<hard_repeats; k++)
+	  {
+	    for (size_t i=0; i<no_chains; i+=cpu_sets.size())
+	      for(int l=0;l<load;l++)
+		{
+		time -= now_usec();		
+		func(chain_begin(data, i+c ));
+		time += now_usec();
+		
+		first_done++;
+		while(second_done.load()==0);
+		second_done--;
+	      }
+	    if(k==0) time = 0;
+
+	  }
+	time_a += time;
+      }
+    )
+  );
+
+  //  std::thread second_action = 
+
+  threads.push_back(		   
+    std::thread([&,c]()
+      {
+	std::atomic<uint32_t>& first_done=first_done_x[c];
+	std::atomic<uint32_t>& second_done=second_done_x[c];
+
+	set_affinity(cpu_sets[c].second);
+	uint64_t time = 0;
+	for (size_t k=0; k<hard_repeats; k++)
+	  {
+	    for (size_t i=0; i<no_chains; i+=cpu_sets.size())
+	      for(int l=0;l<load;l++)
+	      {
+		time -= now_usec();
+		func(chain_begin(data, i+c ));
+		time += now_usec();
+
+		second_done++;
+		while(first_done.load()==0);
+		first_done--;
+	      }
+	    if(k==0) time = 0;
+
+	  }
+	time_b += time;
+      }
+    )
+  );
+    };
+  for(auto& t:threads)
+    t.join();
+  //  first_action.join();
+  // second_action.join();
+  return std::make_pair(time_a.load(), time_b.load());
+  printf("COWORK    total_time = %ld %ld\n", time_a.load(), time_b.load());
+}
+
+
+
 
 
 
@@ -474,6 +591,7 @@ int main(int argc, char** argv)
 
 		      solowork_time = multi_thread_solowork(p.first, p.second, cpu_sets, load, func);
 		      cowork_time = multi_thread_cowork(p.first, p.second, cpu_sets, load, func);
+		      cowork_time = multi_thread_cowork_2(p.first, p.second, cpu_sets, load, add_end<1>);
 		      printf("active_size=%10lu ch_len=%4d %s(%2d) cpu=%2d %2dx "
 			     "solo=%8lf cowork_a=%8lf cowork_b=%8lf\n",
 			     active_size,
