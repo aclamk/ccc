@@ -82,7 +82,7 @@ uint64_t multi_thread_regular(
 	    
 	    time -= now_usec();	
 	    size_t j=c;
-	    for (size_t i=0; i<64*256*1000; i+=cpu_count)
+	    for (size_t i=0; i<64*256*100; i+=cpu_count)
 	      {
 		inc(&buffer[j]);
 		j+=cpu_count;
@@ -99,6 +99,8 @@ uint64_t multi_thread_regular(
     t.join();
   return time_a.load();
 }
+
+
 
 
 uint64_t multi_thread_atomic(
@@ -132,7 +134,7 @@ uint64_t multi_thread_atomic(
 	    
 	    time -= now_usec();	
 	    size_t j=c;
-	    for (size_t i=0; i<64*256*1000; i+=cpu_count)
+	    for (size_t i=0; i<64*256*100; i+=cpu_count)
 	      {
 		atomiki[j]++;
 		j+=cpu_count;
@@ -149,6 +151,66 @@ uint64_t multi_thread_atomic(
     t.join();
   return time_a.load();
 }
+
+
+
+uint64_t multi_thread_atomic_x(
+    std::vector<int>& cpus)
+{
+  std::atomic<uint32_t> first_done[cpus.size()];
+  for(auto& a:first_done)
+    a.store(0);
+
+  std::atomic<uint64_t> time_a(0);
+
+  alignas(cache_line_size) std::atomic<int8_t> atomiki[cache_line_size];
+  for(auto& a:atomiki)
+    a.store(0);
+
+  std::vector<std::thread> threads;
+  int cpu_count = cpus.size();
+  size_t range = cache_line_size/cpu_count*cpu_count;
+  for (int c=0; c<cpu_count; c++)
+    {
+  threads.push_back(
+    std::thread([&,c]()
+      {
+	set_affinity(cpus[c]);
+	uint64_t time = 0;
+	for (size_t k=0; k<hard_repeats; k++)
+	  {
+	    first_done[(c+1)%cpu_count]++;
+	    while(first_done[c].load() == 0);
+	    
+	    first_done[c]--;
+	    
+	    time -= now_usec();	
+	    size_t j=c;
+	    for (size_t i=0; i<64*256*100; i+=cpu_count)
+	      {
+		size_t k = j;
+		if (k>=range) k-=range;
+		while(atomiki[k].load() != 0);		
+		atomiki[k]++;
+		while(atomiki[j].load() == 0);
+		atomiki[j]--;
+		j+=cpu_count;
+		if (j>=range) j-=range;
+	      }
+	    time+= now_usec();
+	  }
+	time_a += time;
+      }
+    )
+  );
+    };
+  for(auto& t:threads)
+    t.join();
+  return time_a.load();
+}
+
+
+
 
 int main(int argc, char** argv)
 {
@@ -167,6 +229,8 @@ int main(int argc, char** argv)
       printf("regular (us)=%9lu\n",time);
       time = multi_thread_atomic(vec);
       printf("atomic (us) =%9lu\n",time);
+      time = multi_thread_atomic_x(vec);
+      printf("ATOMIC (us) =%9lu\n",time);
     }
-  } 
+  }
 }
