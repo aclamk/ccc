@@ -155,7 +155,9 @@ uint64_t multi_thread_atomic(
 
 
 uint64_t multi_thread_atomic_x(
-    std::vector<int>& cpus)
+    std::vector<int>& cpus,
+    std::atomic<int8_t>* atomiki_in=nullptr,
+    int repeat=100)
 {
   std::atomic<uint32_t> first_done[cpus.size()];
   for(auto& a:first_done)
@@ -166,7 +168,8 @@ uint64_t multi_thread_atomic_x(
   alignas(cache_line_size) std::atomic<int8_t> atomiki[cache_line_size];
   for(auto& a:atomiki)
     a.store(0);
-
+  if (atomiki_in == nullptr)
+    atomiki_in = &atomiki[0];
   std::vector<std::thread> threads;
   int cpu_count = cpus.size();
   size_t range = cache_line_size/cpu_count*cpu_count;
@@ -190,10 +193,10 @@ uint64_t multi_thread_atomic_x(
 	      {
 		size_t k = j;
 		if (k>=range) k-=range;
-		while(atomiki[k].load() != 0);		
-		atomiki[k]++;
-		while(atomiki[j].load() == 0);
-		atomiki[j]--;
+		while(atomiki_in[k].load() != 0);		
+		atomiki_in[k]++;
+		while(atomiki_in[j].load() == 0);
+		atomiki_in[j]--;
 		j+=cpu_count;
 		if (j>=range) j-=range;
 	      }
@@ -233,4 +236,14 @@ int main(int argc, char** argv)
       printf("ATOMIC (us) =%9lu\n",time);
     }
   }
+
+  int cpunum=4;
+  for (int i=0; i<cpunum; i++)
+    for (int j=i+1; j<cpunum; j++)
+      {
+	uint64_t time;
+	std::vector<int> vec{i,j};
+	time = multi_thread_atomic_x(vec,nullptr,100);
+	printf("%d %d | time = %lu\n", i, j, time);
+      }
 }
