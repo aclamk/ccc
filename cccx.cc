@@ -73,6 +73,7 @@ uint64_t multi_thread_regular(
       threads.push_back(
 	std::thread([&,c]()
       {
+	char* large = (char*)malloc(2*1024*1024);
 	char* buffer_in=buffer;
 	if (!share)
 	  buffer_in = &buffer[cache_line_size*c];
@@ -86,8 +87,15 @@ uint64_t multi_thread_regular(
 	    
 	    time -= now_usec();	
 	    size_t j=c;
+	    size_t r=0;
 	    for (size_t i=0; i<64*256*100; i+=cpu_count)
 	      {
+		for( int ll=0;ll<0;ll++)
+		  {
+		large[r] = 1;
+		r=r+65;
+		if(r>2*1024*1024) r-=2*1024*1024;
+		  }
 		inc(&buffer_in[j]);
 		j+=cpu_count;
 		if (j>=range) j-=range;
@@ -162,73 +170,13 @@ uint64_t multi_thread_atomic(
 
 
 
-uint64_t multi_thread_atomic_x(
-    std::vector<int>& cpus,
-    std::atomic<int8_t>* atomiki_in=nullptr,
-    int repeat=100)
-{
-  std::atomic<uint32_t> first_done[cpus.size()];
-  for(auto& a:first_done)
-    a.store(0);
-
-  std::atomic<uint64_t> time_a(0);
-
-  alignas(cache_line_size) std::atomic<int8_t> atomiki[cache_line_size];
-  for(auto& a:atomiki)
-    a.store(0);
-  if (atomiki_in == nullptr)
-    atomiki_in = &atomiki[0];
-  std::vector<std::thread> threads;
-  int cpu_count = cpus.size();
-  size_t range = cache_line_size/cpu_count*cpu_count;
-  for (int c=0; c<cpu_count; c++)
-    {
-  threads.push_back(
-    std::thread([&,c]()
-      {
-	set_affinity(cpus[c]);
-	uint64_t time = 0;
-	for (size_t k=0; k<hard_repeats; k++)
-	  {
-	    first_done[(c+1)%cpu_count]++;
-	    while(first_done[c].load() == 0);
-	    
-	    first_done[c]--;
-	    
-	    time -= now_usec();	
-	    size_t j=c;
-	    for (size_t i=0; i<64*256*100; i+=cpu_count)
-	      {
-		size_t k = j;
-		if (k>=range) k-=range;
-		while(atomiki_in[k].load() != 0);		
-		atomiki_in[k]++;
-		while(atomiki_in[j].load() == 0);
-		atomiki_in[j]--;
-		j+=cpu_count;
-		if (j>=range) j-=range;
-	      }
-	    time+= now_usec();
-	  }
-	time_a += time;
-      }
-    )
-  );
-    };
-  for(auto& t:threads)
-    t.join();
-  return time_a.load();
-}
-
-
-
 
 int main(int argc, char** argv)
 {
-  {
-  std::vector<std::vector<int>> cpu_sets={{0}, {0,1}, {0,2}, {0,1,2} , {0,1,2,3}};
-  for (auto& vec:cpu_sets)
+  std::vector<int> vec;
+  for (int i=0; i<4; i++)
     {
+      vec.push_back(i);
       uint64_t time;
       printf("CPUs=");
       for (auto i:vec)
@@ -244,26 +192,5 @@ int main(int argc, char** argv)
       printf("atomic(split)   (us)=%9lu\n",time);
       time = multi_thread_atomic(vec);
       printf("atomic(shared)  (us)=%9lu\n",time);
-      //time = multi_thread_atomic_x(vec);
-      //printf("ATOMIC (us) =%9lu\n",time);
     }
-  }
-
-  int cpunum=4;
-  for (int i=0; i<cpunum; i++)
-    for (int j=i+1; j<cpunum; j++)
-      {
-	uint64_t time;
-	std::vector<int> vec{i,j};
-	time = multi_thread_regular(vec, false);
-	printf("%d %d | reg_separate_time = %9lu\n", i, j, time);
-	time = multi_thread_atomic(vec, false);
-	printf("%d %d | ato_separate_time = %9lu\n", i, j, time);	
-	time = multi_thread_regular(vec);
-	printf("%d %d | reg_shared_time =   %9lu\n", i, j, time);
-	time = multi_thread_atomic(vec);
-	printf("%d %d | reg_shared_time =   %9lu\n", i, j, time);
-	//time = multi_thread_atomic_x(vec,nullptr,100);
-	//printf("%d %d | time = %lu\n", i, j, time);
-      }
 }
