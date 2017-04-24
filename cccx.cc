@@ -50,9 +50,12 @@ void dec(char* p){(*p)--;};
 char peek(char* p){return (*p);};
 
 template <size_t write_count, size_t write_spread, bool shared>
-void inc(char* p) __attribute__((noinline));
+int inc(char* p) __attribute__((noinline));
 template <size_t write_count, size_t write_spread, bool shared>
-void inc(char* p){(*p)++;};
+int inc(char* p){
+  (*p)++;
+  return write_count*200+write_spread*2+(int)shared;
+};
 
 
 
