@@ -60,6 +60,9 @@ void inc(char* p){(*p)++;};
 void dec(char* p){(*p)--;};
 char peek(char* p){return (*p);};
 
+void set(char* p,char a){(*p)=a;};
+
+
 template <size_t write_count, size_t write_spread>
 int inc(char* p) __attribute__((noinline));
 template <size_t write_count, size_t write_spread>
@@ -111,30 +114,34 @@ uint64_t generic_test(
       uint64_t time = 0;
       for (size_t k=0; k<hard_repeats; k++)
       {
+        time -= now_usec();
         size_t r=0;
-        for (size_t i=0; i<64*256*10; i++)
+        for (size_t i=0; i<64*256; i++)
         {
           if (c==0)
             m1.lock();
           else
             m2.lock();
-          time -= now_usec();
-
+          //time -= now_usec();
+          char a=0;
           r = 0;
           for(size_t wc=0; wc<write_count; wc++)
           {
             inc<write_count, write_spread>(&test_area[r]);
+            a+=peek(&test_area[r]);
             r=r+write_spread;
             if(r>test_area_size) r-=test_area_size;
           }
+          set(&test_area[r],a);
 
-          time+= now_usec();
+          //time+= now_usec();
 
           if (c==0)
             m2.unlock();
           else
             m1.unlock();
         }
+        time+= now_usec();
       }
       time_a += time;
     }
@@ -158,72 +165,111 @@ struct test_t {
   size_t write_count;
   size_t write_spread;
   bool share;
-  bool do_atomic;
   test_f test;
 };
 
-#define TEST_T(a,b,c,d) {a,b,c,d,generic_test<a,b,d>}
+#define TEST_T(a,b,c) {a*15,b,c,generic_test<a*15,b,c>}
 
 std::vector<test_t> regular_separate{
-  TEST_T(0, 4, false, false),
-  TEST_T(5, 4, false, false),
-  TEST_T(10, 4, false, false),
-  TEST_T(15, 4, false, false),
-  TEST_T(20, 4, false, false),
-  TEST_T(25, 4, false, false),
-  TEST_T(30, 4, false, false),
+  TEST_T(0, 4, false),
+  TEST_T(5, 4, false),
+  TEST_T(10, 4, false),
+  TEST_T(15, 4, false),
+  TEST_T(20, 4, false),
+  TEST_T(25, 4, false),
+  TEST_T(30, 4, false),
 
-  TEST_T(0, 14, false, false),
-  TEST_T(5, 14, false, false),
-  TEST_T(10, 14, false, false),
-  TEST_T(15, 14, false, false),
-  TEST_T(20, 14, false, false),
-  TEST_T(25, 14, false, false),
-  TEST_T(30, 14, false, false),
+  TEST_T(0, 14, false),
+  TEST_T(5, 14, false),
+  TEST_T(10, 14, false),
+  TEST_T(15, 14, false),
+  TEST_T(20, 14, false),
+  TEST_T(25, 14, false),
+  TEST_T(30, 14, false),
 
-  TEST_T(0, 64, false, false),
-  TEST_T(5, 64, false, false),
-  TEST_T(10, 64, false, false),
-  TEST_T(15, 64, false, false),
-  TEST_T(20, 64, false, false),
-  TEST_T(25, 64, false, false),
-  TEST_T(30, 64, false, false),
+  TEST_T(0, 14, false),
+  TEST_T(5, 14, false),
+  TEST_T(10, 14, false),
+  TEST_T(15, 14, false),
+  TEST_T(20, 14, false),
+  TEST_T(25, 14, false),
+  TEST_T(30, 14, false),
 
-  TEST_T(0, 4, false, true),
-  TEST_T(5, 4, false, true),
-  TEST_T(10, 4, false, true),
-  TEST_T(15, 4, false, true),
-  TEST_T(20, 4, false, true),
-  TEST_T(25, 4, false, true),
-  TEST_T(30, 4, false, true),
+  TEST_T(0, 24, false),
+  TEST_T(5, 24, false),
+  TEST_T(10, 24, false),
+  TEST_T(15, 24, false),
+  TEST_T(20, 24, false),
+  TEST_T(25, 24, false),
+  TEST_T(30, 24, false),
 
-  TEST_T(0, 14, false, true),
-  TEST_T(5, 14, false, true),
-  TEST_T(10, 14, false, true),
-  TEST_T(15, 14, false, true),
-  TEST_T(20, 14, false, true),
-  TEST_T(25, 14, false, true),
-  TEST_T(30, 14, false, true),
+  TEST_T(0, 34, false),
+  TEST_T(5, 34, false),
+  TEST_T(10, 34, false),
+  TEST_T(15, 34, false),
+  TEST_T(20, 34, false),
+  TEST_T(25, 34, false),
+  TEST_T(30, 34, false),
 
-  TEST_T(0, 64, false, true),
-  TEST_T(5, 64, false, true),
-  TEST_T(10, 64, false, true),
-  TEST_T(15, 64, false, true),
-  TEST_T(20, 64, false, true),
-  TEST_T(25, 64, false, true),
-  TEST_T(30, 64, false, true),
+  TEST_T(0, 64, false),
+  TEST_T(5, 64, false),
+  TEST_T(10, 64, false),
+  TEST_T(15, 64, false),
+  TEST_T(20, 64, false),
+  TEST_T(25, 64, false),
+  TEST_T(30, 64, false),
+
+  TEST_T(0, 4, true),
+  TEST_T(5, 4, true),
+  TEST_T(10, 4, true),
+  TEST_T(15, 4, true),
+  TEST_T(20, 4, true),
+  TEST_T(25, 4, true),
+  TEST_T(30, 4, true),
+
+  TEST_T(0, 14, true),
+  TEST_T(5, 14, true),
+  TEST_T(10, 14, true),
+  TEST_T(15, 14, true),
+  TEST_T(20, 14, true),
+  TEST_T(25, 14, true),
+  TEST_T(30, 14, true),
+
+  TEST_T(0, 24, true),
+  TEST_T(5, 24, true),
+  TEST_T(10, 24, true),
+  TEST_T(15, 24, true),
+  TEST_T(20, 24, true),
+  TEST_T(25, 24, true),
+  TEST_T(30, 24, true),
+
+  TEST_T(0, 34, true),
+  TEST_T(5, 34, true),
+  TEST_T(10, 34, true),
+  TEST_T(15, 34, true),
+  TEST_T(20, 34, true),
+  TEST_T(25, 34, true),
+  TEST_T(30, 34, true),
+
+  TEST_T(0, 64, true),
+  TEST_T(5, 64, true),
+  TEST_T(10, 64, true),
+  TEST_T(15, 64, true),
+  TEST_T(20, 64, true),
+  TEST_T(25, 64, true),
+  TEST_T(30, 64, true),
 
 };
 
 int main(int argc, char** argv)
 {
-  size_t test_area_size = 32*1024;
+  size_t test_area_size = 128*1024;
   char* test_area = (char*)malloc(test_area_size);
 
-  std::vector<int> vec{0};
+  std::vector<int> vec{0,1};
   for (int i=1; i<2; i++)
     {
-      vec.push_back(i);
+      //vec.push_back(i);
       uint64_t time;
       printf("CPUs=");
       for (auto i:vec)
@@ -234,7 +280,7 @@ int main(int argc, char** argv)
       for (auto &e : regular_separate)
       {
         time = e.test(test_area_size, test_area, vec);
-        printf("%2lu %2lu %s %s %9lu\n", e.write_count, e.write_spread, e.share?"shared  ":"separate", e.do_atomic?"atomic":"normal", time);
+        printf("%3lu %3lu %s %9lu\n", e.write_count, e.write_spread, e.share?"shared  ":"separate", time);
       }
     }
 }
