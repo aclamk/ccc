@@ -1,4 +1,4 @@
-all: ccc cccx cccy
+all: ccc cccx cccy cccz
 
 ccc: ccc.cc
 	g++ -Wall --std=c++11 -O3 $^ -lpthread -o $@
@@ -10,4 +10,7 @@ cccx: cccx.o
 	g++ -Wall --std=c++11 -O2 $^ -lpthread -o $@
 
 cccy: cccy.cc
+	g++ -Wall --std=c++11 -O3 $^ -lpthread -o $@
+
+cccz: cccz.cc
 	g++ -Wall --std=c++11 -O3 $^ -lpthread -o $@
